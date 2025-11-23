@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mobile Engine Analysis</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 10px; margin: 0; background: #222; color: #eee; }
+        h3 { margin: 5px 0; }
+        #board { width: 100%; max-width: 500px; margin: 0 auto; }
+        #controls { margin-top: 15px; text-align: center; }
+        #engine-output { margin-top: 15px; background: #333; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 0.9em; min-height: 100px; }
+        .line-item { margin-bottom: 8px; border-bottom: 1px solid #444; padding-bottom: 4px; }
+        .score { color: #4caf50; font-weight: bold; margin-right: 10px; }
+        .mate { color: #ff5252; font-weight: bold; margin-right: 10px; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; background: #444; color: white; border: none; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+<div id="board"></div>
+
+<div id="controls">
+    <button id="startBtn">Start/Reset</button>
+    <div style="margin-top:10px; font-size: 0.8em; color: #aaa;">
+        Status: <span id="status">Waiting for engine...</span>
+    </div>
+</div>
+
+<div id="engine-output">
+    <h3>Top 3 Lines</h3>
+    <div id="lines"></div>
+</div>
+
+<script>
+    // --- CONFIGURATION ---
+    // This must match the filename of your engine in the GitHub repo
+    const ENGINE_FILE = 'engine.js'; 
+    // ---------------------
+
+    var board = null;
+    var game = new Chess();
+    var engine = null;
+    var engineStatus = document.getElementById('status');
+    
+    // Initialize the engine Worker
+    try {
+        engine = new Worker(ENGINE_FILE);
+        engineStatus.innerText = "Engine loaded.";
+        
+        engine.onmessage = function(event) {
+            var line = event.data;
+            
+            // UCI Handshake
+            if (line === 'uciok') {
+                engineStatus.innerText = "Engine ready.";
+            }
+            if (line === 'readyok') {
+                engineStatus.innerText = "Engine ready for move.";
+            }
+
+            // Parse Analysis Info
+            if (line.startsWith('info') && line.includes('pv')) {
+                parseInfoLine(line);
+            }
+        };
+        
+        // Initialize UCI
+        engine.postMessage('uci');
+        engine.postMessage('isready');
+
+    } catch (e) {
+        engineStatus.innerText = "Error: Could not load " + ENGINE_FILE;
+        alert("Could not load engine.js. Make sure it is in the same folder.");
+    }
+
+    // Helper to parse UCI 'info' string
+    function parseInfoLine(line) {
+        // We only care about lines with depth and score
+        if (!line.includes('score')) return;
+
+        // Extract MultiPV index (default to 1 if not present)
+        let multipvMatch = line.match(/multipv (\d+)/);
+        let multipv = multipvMatch ? parseInt(multipvMatch[1]) : 1;
+
+        // Extract Score (cp or mate)
+        let scoreText = "";
+        let cpMatch = line.match(/score cp (-?\d+)/);
+        let mateMatch = line.match(/score mate (-?\d+)/);
+        
+        let isWhite = game.turn() === 'w';
+        
+        if (mateMatch) {
+            scoreText = `<span class="mate">M${mateMatch[1]}</span>`;
+        } else if (cpMatch) {
+            // UCI usually gives score from engine's perspective, but sometimes absolute.
+            // Standard is Side-to-move.
+            let score = parseInt(cpMatch[1]);
+            score = (score / 100).toFixed(2);
+            scoreText = `<span class="score">${score > 0 ? '+' : ''}${score}</span>`;
+        }
+
+        // Extract PV (Principal Variation / Best Moves)
+        let pvIndex = line.indexOf(' pv ');
+        let pvMoves = "";
+        if (pvIndex !== -1) {
+            pvMoves = line.substring(pvIndex + 4);
+        }
+
+        // Update the UI for this specific line (1, 2, or 3)
+        let html = `
+            <div class="line-item">
+                <strong>#${multipv}</strong> ${scoreText} ${pvMoves}
+            </div>
+        `;
+
+        // We use a simple approach: store lines in an object and render
+        if (!window.analysisLines) window.analysisLines = {};
+        window.analysisLines[multipv] = html;
+
+        let finalHtml = "";
+        // Sort by multipv key and join
+        Object.keys(window.analysisLines).sort().forEach(k => {
+            finalHtml += window.analysisLines[k];
+        });
+        document.getElementById('lines').innerHTML = finalHtml;
+    }
+
+    function onDragStart (source, piece) {
+        if (game.game_over()) return false;
+        if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
+            (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
+            return false;
+        }
+    }
+
+    function onDrop (source, target) {
+        var move = game.move({ from: source, to: target, promotion: 'q' });
+        if (move === null) return 'snapback';
+        
+        window.analysisLines = {}; // Clear old lines
+        document.getElementById('lines').innerHTML = "Thinking...";
+        startAnalysis();
+    }
+
+    function onSnapEnd () {
+        board.position(game.fen());
+    }
+
+    function startAnalysis() {
+        if(!engine) return;
+        engine.postMessage('stop'); // Stop previous
+        engine.postMessage('position fen ' + game.fen());
+        // Analyze with MultiPV 3 (Top 3 lines) to depth 20
+        engine.postMessage('go depth 20 multipv 3'); 
+    }
+
+    board = Chessboard('board', {
+        draggable: true,
+        position: 'start',
+        onDragStart: onDragStart,
+        onDrop: onDrop,
+        onSnapEnd: onSnapEnd
+    });
+
+    document.getElementById('startBtn').addEventListener('click', function() {
+        game.reset();
+        board.start();
+        window.analysisLines = {};
+        document.getElementById('lines').innerHTML = "";
+        engine.postMessage('stop');
+    });
+</script>
+</body>
+</html>
