@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Mobile Engine Analysis</title>
+    <title>Mittens Analysis</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
     <!-- Libraries -->
@@ -11,59 +11,235 @@
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
 
     <style>
-        /* Basic Mobile Styling */
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 10px; margin: 0; background: #222; color: #eee; }
-        h3 { margin: 5px 0; }
-        #board { width: 100%; max-width: 500px; margin: 0 auto; }
-        #controls { margin-top: 15px; text-align: center; }
-        #engine-output { margin-top: 15px; background: #333; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 0.9em; min-height: 100px; }
-        .line-item { margin-bottom: 8px; border-bottom: 1px solid #444; padding-bottom: 4px; }
-        .score { color: #4caf50; font-weight: bold; margin-right: 10px; }
-        .mate { color: #ff5252; font-weight: bold; margin-right: 10px; }
-        button { padding: 10px 20px; font-size: 16px; cursor: pointer; background: #444; color: white; border: none; border-radius: 4px; }
+        /* --- THEME & BASE --- */
+        * { box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; 
+            background: #161512; /* Lichess Dark */
+            color: #bababa; 
+            margin: 0; padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        /* --- LAYOUT --- */
+        #main-layout {
+            display: flex;
+            flex-direction: row;
+            justify-content: center; /* FORCE CENTER */
+            align-items: flex-start;
+            width: 100%;
+            max-width: 950px; /* Tighter width to reduce gap */
+            padding: 10px;
+            gap: 10px; /* Reduced gap */
+        }
+
+        /* Game Area = Eval Bar + Board */
+        #game-area {
+            flex: 2;
+            display: flex;
+            flex-direction: row;
+            gap: 0; /* No gap between eval and board */
+            max-width: 600px;
+        }
+
+        /* --- EVAL BAR --- */
+        #eval-container {
+            width: 25px;
+            background: #333;
+            border-top-left-radius: 3px;
+            border-bottom-left-radius: 3px;
+            display: flex;
+            flex-direction: column-reverse; 
+            overflow: hidden;
+            position: relative;
+            border: 1px solid #444;
+            border-right: none; /* Merge with board */
+            /* Height set by JS */
+        }
+        #eval-fill {
+            width: 100%;
+            height: 50%;
+            background: #fff;
+            transition: height 0.5s ease, width 0.5s ease;
+        }
+        #eval-bg { flex: 1; background: #404040; }
+        #eval-text {
+            position: absolute;
+            width: 100%;
+            text-align: center;
+            font-size: 9px;
+            font-weight: bold;
+            color: #777;
+            top: 2px;
+            z-index: 10;
+            mix-blend-mode: difference; 
+        }
+
+        /* --- CHESSBOARD --- */
+        #board { width: 100%; }
+
+        /* --- SIDEBAR (ANALYSIS) --- */
+        #sidebar {
+            flex: 1.3;
+            background: #262421;
+            border-radius: 3px;
+            display: flex;
+            flex-direction: column;
+            height: 100%; 
+            min-width: 220px;
+            border: 1px solid #333;
+        }
+
+        #status-bar {
+            padding: 10px;
+            background: #302e2c;
+            border-bottom: 1px solid #404040;
+            font-size: 0.85rem;
+            color: #999;
+            border-top-left-radius: 3px;
+            border-top-right-radius: 3px;
+            text-align: center;
+        }
+
+        #engine-output {
+            padding: 0;
+            overflow-y: auto;
+            flex-grow: 1; 
+            background: #262421;
+        }
+
+        /* Sidebar Footer (Controls) */
+        #sidebar-controls {
+            padding: 10px;
+            background: #302e2c;
+            border-top: 1px solid #404040;
+            display: flex;
+            gap: 5px;
+        }
+
+        /* --- BUTTONS --- */
+        button {
+            flex: 1;
+            background: #3d3b39;
+            color: #bababa;
+            border: none;
+            padding: 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            transition: background 0.2s;
+        }
+        button:hover { background: #504e4b; color: #fff; }
+        .btn-symbol { font-size: 1.2rem; line-height: 0; font-weight: normal; color: #888; }
+
+        /* --- ANALYSIS LINES STYLE --- */
+        .line-item {
+            padding: 6px 10px;
+            border-bottom: 1px solid #363636;
+            font-size: 0.85rem;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .line-item:nth-child(even) { background: #2b2926; }
+        .line-eval { font-weight: bold; min-width: 40px; text-align: right; font-family: monospace; }
+        .eval-pos { color: #7fa650; }
+        .eval-neg { color: #ff5d5d; }
+        .line-pv { color: #bbb; line-height: 1.3; font-size: 0.8rem; word-break: break-word; }
+        .move-num { color: #666; }
+
+        /* --- MOBILE RESPONSIVE --- */
+        @media (max-width: 800px) {
+            #main-layout { flex-direction: column; padding: 10px; gap: 15px; align-items: center; }
+            #game-area { flex-direction: column; width: 100%; max-width: 450px; gap: 0; }
+            
+            /* On mobile, eval bar becomes horizontal on top */
+            #eval-container { 
+                width: 100%; 
+                height: 20px !important; 
+                flex-direction: row;
+                margin-bottom: 5px;
+                border-right: 1px solid #444;
+            }
+            #eval-fill { height: 100%; width: 50%; }
+            #eval-text { top: 2px; }
+            
+            #sidebar { width: 100%; max-width: 450px; height: auto; min-height: 250px; }
+            #engine-output { max-height: 250px; }
+        }
     </style>
 </head>
 <body>
 
-<!-- Board and Controls -->
-<div id="board"></div>
-
-<div id="controls">
-    <button id="startBtn">Start/Reset</button>
-    <div style="margin-top:10px; font-size: 0.8em; color: #aaa;">
-        Status: <span id="status">Waiting for engine...</span>
+<div id="main-layout">
+    
+    <!-- Left: Game Area (Eval + Board) -->
+    <div id="game-area">
+        <div id="eval-container">
+            <div id="eval-text">0.0</div>
+            <div id="eval-bg"></div>
+            <div id="eval-fill"></div>
+        </div>
+        <div id="board"></div>
     </div>
-</div>
 
-<div id="engine-output">
-    <h3>Top 3 Lines</h3>
-    <div id="lines"></div>
+    <!-- Right: Sidebar -->
+    <div id="sidebar">
+        <div id="status-bar">Loading engine...</div>
+        
+        <div id="engine-output">
+            <!-- Analysis lines appear here -->
+        </div>
+
+        <!-- Controls moved to bottom of sidebar -->
+        <div id="sidebar-controls">
+            <button id="startBtn">
+                <span class="btn-symbol">+</span> New Game
+            </button>
+            <button id="flipBtn">
+                <span class="btn-symbol">/</span> Flip Board
+            </button>
+        </div>
+    </div>
+
 </div>
 
 <script>
     // --- CONFIGURATION ---
-    // Ensure this matches your engine filename exactly
     const ENGINE_FILE = 'engine.js'; 
     // ---------------------
 
     var board = null;
     var game = new Chess();
     var engine = null;
-    var engineStatus = document.getElementById('status');
-    
-    // 1. Load the Engine
+    var statusEl = document.getElementById('status-bar');
+    var evalFill = document.getElementById('eval-fill');
+    var evalText = document.getElementById('eval-text');
+    var isEngineReady = false;
+
+    // 1. Load Engine
     try {
         engine = new Worker(ENGINE_FILE);
-        engineStatus.innerText = "Engine loaded.";
         
         engine.onmessage = function(event) {
             var line = event.data;
             
-            // Listen for Ready signals
-            if (line === 'uciok') { engineStatus.innerText = "Engine ready."; }
-            if (line === 'readyok') { engineStatus.innerText = "Engine ready for move."; }
+            if (line === 'uciok' || line === 'readyok') { 
+                if(!isEngineReady) {
+                    isEngineReady = true;
+                    statusEl.innerText = "Engine Ready";
+                    startAnalysis();
+                }
+            }
 
-            // Parse output
             if (line.startsWith('info') && line.includes('pv')) {
                 parseInfoLine(line);
             }
@@ -73,94 +249,163 @@
         engine.postMessage('isready');
 
     } catch (e) {
-        engineStatus.innerText = "Error: Could not load " + ENGINE_FILE;
-        alert("Could not load engine.js. Ensure it is in the same GitHub folder.");
+        statusEl.innerText = "Error: " + e.message;
     }
 
-    // 2. Helper to format Engine text
+    // 2. Parse Output
     function parseInfoLine(line) {
         if (!line.includes('score')) return;
 
         let multipvMatch = line.match(/multipv (\d+)/);
         let multipv = multipvMatch ? parseInt(multipvMatch[1]) : 1;
 
-        let scoreText = "";
+        let scoreText = "0.00";
+        let rawScore = 0;
         let cpMatch = line.match(/score cp (-?\d+)/);
         let mateMatch = line.match(/score mate (-?\d+)/);
-        
+        let scoreClass = "eval-pos";
+
         if (mateMatch) {
-            scoreText = `<span class="mate">M${mateMatch[1]}</span>`;
+            let movesToMate = parseInt(mateMatch[1]);
+            scoreText = `M${Math.abs(movesToMate)}`;
+            rawScore = movesToMate > 0 ? 2000 : -2000;
+            scoreClass = movesToMate > 0 ? "eval-pos" : "eval-neg";
         } else if (cpMatch) {
-            let score = parseInt(cpMatch[1]);
-            score = (score / 100).toFixed(2);
-            scoreText = `<span class="score">${score > 0 ? '+' : ''}${score}</span>`;
+            rawScore = parseInt(cpMatch[1]);
+            if (game.turn() === 'b') rawScore = -rawScore;
+            
+            scoreText = (rawScore / 100).toFixed(2);
+            if (rawScore > 0) {
+                scoreText = "+" + scoreText;
+                scoreClass = "eval-pos";
+            } else {
+                scoreClass = "eval-neg";
+            }
         }
 
         let pvIndex = line.indexOf(' pv ');
-        let pvMoves = "";
         if (pvIndex !== -1) {
-            pvMoves = line.substring(pvIndex + 4);
+            let rawPv = line.substring(pvIndex + 4).trim();
+            let cleanPv = lanToSan(game.fen(), rawPv);
+
+            let html = `
+                <div class="line-item">
+                    <div class="line-eval ${scoreClass}">${scoreText}</div>
+                    <div class="line-pv">${cleanPv}</div>
+                </div>
+            `;
+            
+            if (!window.analysisLines) window.analysisLines = {};
+            window.analysisLines[multipv] = { html: html, score: rawScore };
+            renderLines();
+            
+            if (multipv === 1) updateEvalBar(rawScore, scoreText);
         }
-
-        let html = `<div class="line-item"><strong>#${multipv}</strong> ${scoreText} ${pvMoves}</div>`;
-
-        if (!window.analysisLines) window.analysisLines = {};
-        window.analysisLines[multipv] = html;
-
-        let finalHtml = "";
-        Object.keys(window.analysisLines).sort().forEach(k => {
-            finalHtml += window.analysisLines[k];
-        });
-        document.getElementById('lines').innerHTML = finalHtml;
     }
 
-    // 3. Chess Logic
-    function onDragStart (source, piece) {
-        if (game.game_over()) return false;
-        if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
-            (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
-            return false;
+    function updateEvalBar(score, text) {
+        let clamped = Math.max(-1000, Math.min(1000, score));
+        let percent = 50 + (clamped / 20); 
+        
+        evalText.innerText = text;
+        
+        if(window.innerWidth <= 800) {
+            evalFill.style.width = percent + "%";
+            evalFill.style.height = "100%";
+        } else {
+            evalFill.style.height = percent + "%";
+            evalFill.style.width = "100%";
         }
+    }
+
+    function renderLines() {
+        let finalHtml = "";
+        for (let i = 1; i <= 3; i++) {
+            if (window.analysisLines[i]) finalHtml += window.analysisLines[i].html;
+        }
+        document.getElementById('engine-output').innerHTML = finalHtml;
+    }
+
+    function lanToSan(fen, lanMovesString) {
+        let tempGame = new Chess(fen);
+        let lanMoves = lanMovesString.split(' ');
+        let sanMoves = [];
+        for (let i = 0; i < Math.min(lanMoves.length, 6); i++) {
+            let lan = lanMoves[i];
+            let from = lan.substring(0, 2);
+            let to = lan.substring(2, 4);
+            let promotion = lan.length > 4 ? lan.substring(4, 5) : undefined;
+            let move = tempGame.move({ from: from, to: to, promotion: promotion });
+            if (move) {
+                let moveNum = (tempGame.turn() === 'b') ? Math.ceil(tempGame.history().length / 2) + ". " : "";
+                if (i===0 && tempGame.turn() === 'w') moveNum = Math.ceil(tempGame.history().length / 2) + "... ";
+                sanMoves.push(`<span class="move-num">${moveNum}</span>${move.san}`);
+            }
+        }
+        return sanMoves.join(' ');
     }
 
     function onDrop (source, target) {
         var move = game.move({ from: source, to: target, promotion: 'q' });
         if (move === null) return 'snapback';
-        
         window.analysisLines = {};
-        document.getElementById('lines').innerHTML = "Thinking...";
+        document.getElementById('engine-output').innerHTML = "";
         startAnalysis();
-    }
-
-    function onSnapEnd () {
-        board.position(game.fen());
     }
 
     function startAnalysis() {
         if(!engine) return;
         engine.postMessage('stop');
         engine.postMessage('position fen ' + game.fen());
-        engine.postMessage('go depth 20 multipv 3'); 
+        engine.postMessage('setoption name MultiPV value 3');
+        engine.postMessage('go depth 18'); 
+        statusEl.innerText = "Thinking...";
     }
 
-    // 4. Initialize Board with EXTERNAL IMAGES
     board = Chessboard('board', {
         draggable: true,
         position: 'start',
-        // This URL loads the piece images from the library's official site
         pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
-        onDragStart: onDragStart,
+        onDragStart: (source, piece) => {
+            if (game.game_over()) return false;
+            if ((game.turn() === 'w' && piece.search(/^b/) !== -1) || (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
+        },
         onDrop: onDrop,
-        onSnapEnd: onSnapEnd
+        onSnapEnd: () => board.position(game.fen())
     });
 
-    document.getElementById('startBtn').addEventListener('click', function() {
+    // Buttons
+    $('#startBtn').on('click', function() {
         game.reset();
         board.start();
         window.analysisLines = {};
-        document.getElementById('lines').innerHTML = "";
-        engine.postMessage('stop');
+        $('#engine-output').empty();
+        evalFill.style.height = "50%";
+        evalText.innerText = "0.0";
+        startAnalysis();
     });
+
+    $('#flipBtn').on('click', function() {
+        board.flip();
+    });
+    
+    // HEIGHT SYNC
+    function matchEvalHeight() {
+        if(window.innerWidth > 800) {
+            const boardHeight = document.getElementById('board').offsetHeight;
+            if(boardHeight > 0) {
+                document.getElementById('sidebar').style.height = boardHeight + "px";
+                document.getElementById('eval-container').style.height = boardHeight + "px";
+            }
+        } else {
+            document.getElementById('sidebar').style.height = "auto";
+            document.getElementById('eval-container').style.height = ""; 
+        }
+    }
+
+    window.addEventListener('resize', matchEvalHeight);
+    setInterval(matchEvalHeight, 500);
+
 </script>
 </body>
 </html>
