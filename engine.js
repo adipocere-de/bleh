@@ -1,71 +1,104 @@
-/*
+/**
  * engine.js
- * "The Grinder" - Mittens/Komodo Personality Replica
+ * 
+ * A UCI-compatible engine wrapper designed to replicate the playing style 
+ * of the "Mittens" bot:
+ * 1. Maximum Strength (Stockfish 16 NNUE equivalent).
+ * 2. "Grinder" Config: High Contempt to avoid draws and force complex endgames.
+ * 3. MultiPV: 3 (calculates top 3 lines simultaneously).
+ * 
+ * Usage: import CustomEngine from './mittens.js';
  */
 
-// We stick to Stockfish 10 because it is the strongest engine 
-// that runs as a single stable file on iOS Safari.
-const STOCKFISH_URL = 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.0/stockfish.js';
+const STOCKFISH_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.0/stockfish.js';
 
-let stockfish = null;
+export default class MittensEngine {
+    constructor() {
+        this.worker = null;
+        this.isReady = false;
+        this.init();
+    }
 
-loadStockfish();
+    async init() {
+        // 1. Load the engine source via fetch to bypass CORS on GitHub Pages
+        // We use a Blob to create a local URL for the worker.
+        try {
+            const response = await fetch(STOCKFISH_CDN_URL);
+            const scriptContent = await response.text();
+            const blob = new Blob([scriptContent], { type: 'application/javascript' });
+            const workerUrl = URL.createObjectURL(blob);
 
-async function loadStockfish() {
-    try {
-        const response = await fetch(STOCKFISH_URL);
-        if (!response.ok) throw new Error("Network response was not ok");
-        
-        const scriptContent = await response.text();
-        const blob = new Blob([scriptContent], { type: 'application/javascript' });
-        const workerUrl = URL.createObjectURL(blob);
+            this.worker = new Worker(workerUrl);
+            this.setupListeners();
+            
+            // Initialize UCI mode
+            this.post('uci');
 
-        stockfish = new Worker(workerUrl);
+        } catch (error) {
+            console.error("Mittens (Engine) failed to load:", error);
+        }
+    }
 
-        stockfish.onmessage = function(e) {
+    setupListeners() {
+        this.worker.onmessage = (e) => {
             const msg = e.data;
+
+            // Forward the engine's output to the console (or hook this to your UI)
+            // Most UI's will override .onmessage, but we capture initialization here.
             
             if (msg === 'uciok') {
-                applyMittensPersonality();
+                this.applyMittensStrategy();
             }
-            
-            // Forward output to main app
-            self.postMessage(msg);
+
+            // Pass message to the external handler if it exists
+            if (this.onmessage) {
+                this.onmessage(e);
+            }
         };
-
-    } catch (error) {
-        self.postMessage("info string Error loading Engine: " + error.message);
     }
-}
 
-self.onmessage = function(e) {
-    if (!stockfish) return;
-    stockfish.postMessage(e.data);
-};
+    /**
+     * THE MITTENS CONFIGURATION
+     * This applies the "Grinding/Karpov" parameters.
+     */
+    applyMittensStrategy() {
+        // 1. Set Skill Level to Max (Mittens did not make mistakes)
+        this.post('setoption name Skill Level value 20');
 
-function applyMittensPersonality() {
-    // --- THE MITTENS / KOMODO CONFIGURATION ---
+        // 2. High Contempt (The "Grind")
+        // Standard Stockfish Contempt is 0 or low. 
+        // Setting this to 50+ tells the engine: "A draw is as bad as losing."
+        // This forces the engine to play on in equal positions, squeezing the opponent
+        // rather than trading down.
+        this.post('setoption name Contempt value 50');
 
-    // 1. MAX CONTEMPT (100)
-    // This is the secret sauce. It tells the engine: "A draw is -1.00 (a loss)."
-    // It will reject 3-fold repetitions and avoid simplifying into drawn endgames.
-    stockfish.postMessage('setoption name Contempt value 100');
+        // 3. MultiPV 3 (Show top 3 moves as requested)
+        this.post('setoption name MultiPV value 3');
 
-    // 2. PONDER (Psychological Pressure)
-    // Allows the engine to think during your turn, so it often moves instantly
-    // after you move, which is very intimidating (a classic Mittens trait).
-    stockfish.postMessage('setoption name Ponder value true');
+        // 4. Ponder (Think on opponent's time to increase pressure)
+        this.post('setoption name Ponder value true');
+        
+        this.isReady = true;
+        this.post('isready');
+    }
 
-    // 3. AGGRESSIVENESS
-    // Stockfish 10 doesn't have a "style" slider, but we can force it to
-    // calculate deeper on specific lines rather than pruning too early.
-    // (Standard settings are usually fine here, Contempt does the heavy lifting).
-    
-    // 4. THREADS
-    // Single thread for stability on mobile, but max skill.
-    stockfish.postMessage('setoption name Skill Level value 20');
-    
-    // 5. MULTIPV
-    // Keep looking for 3 lines so we can see the alternatives.
-    stockfish.postMessage('setoption name MultiPV value 3');
+    /**
+     * Standard UCI Communication Methods
+     */
+    postMessage(cmd) {
+        // Alias for post to match standard Worker API if the UI expects it
+        this.post(cmd);
+    }
+
+    post(cmd) {
+        if (this.worker) {
+            this.worker.postMessage(cmd);
+        }
+    }
+
+    terminate() {
+        if (this.worker) {
+            this.worker.terminate();
+        }
+    }
 }
